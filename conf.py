@@ -26,17 +26,15 @@ class Config(object):
     seq_len = data_t0
     pred_len = data_t0
     stride = 5
-    patch_len = 5
+    patch_len = 10
     factor = 2
-    n_heads = 4
-    activation = 'gelu'
+    n_heads = 6
+    activation = 'relu'
     dropout = 0.25
-    e_layers = 6
+    e_layers = 3
     enc_in = len(channel)
     d_model = 32
-    d_ff = 512
-    num_heads = 8
-    num_layers = 6
+    d_ff = 128
     
     # optimizer config
     lr = 0.0001

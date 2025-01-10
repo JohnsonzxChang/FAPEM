@@ -5,7 +5,8 @@ import torch.utils.data as DD
 from scipy.signal import kaiserord, filtfilt, firwin, butter
 from conf import Config
 
-BENCH_DATASET_DIR = '/Users/zhangxu/Desktop/ssvep/bench/'
+# BENCH_DATASET_DIR = '/Users/zhangxu/Desktop/ssvep/bench/'
+BENCH_DATASET_DIR = '/home/zhangxu/prj/ssvep_project/bench'
 
 def construct_filter(fs=250.0, cutoff_hz=[[6, 66]], type='kaiser'):
     if type == 'kaiser':
@@ -65,13 +66,14 @@ def load_data_refine(base_path: str, T: int, E: list, Mm=None, T0: int = 125, id
     return res
 
 class base_torch_mix_dataset(DD.Dataset):
-    def __init__(self, T0: int, EE_Train=None, EE_Test=None,
+    def __init__(self, T0: int, EE_Train=None, EE_Test=None, deltT=10,
                  preprocess=False, multiplex=1, use_beta=False, M=None,
                  filterbank=False, t_pre=125, train=True):
         super().__init__()
         self.T0 = T0
         self.multiplex = multiplex
         self.base_path = BENCH_DATASET_DIR
+        self.aux_t = deltT
         self.use_beta = use_beta
         assert self.use_beta == False
         self.M = M
@@ -114,7 +116,7 @@ class base_torch_mix_dataset(DD.Dataset):
         assert int(self.T0 * (1+self.multiplex)) <= 5 * 250, f'{self.T0} * {self.multiplex} vs 1250'
         res = load_data_refine(self.base_path, int(self.T0 * (1+self.multiplex) + self.t_pre), self.E, T0=0, Mm=self.M, filterbank=self.filterbank)
         self.data = res["Data"][:,:,:,self.t_pre:self.t_pre+int(self.T0*self.multiplex)]
-        self.data_aux = res["Data"][:,:,:,self.t_pre+self.T0:self.t_pre+int(self.T0*(1+self.multiplex))]
+        self.data_aux = res["Data"][:,:,:,self.t_pre+self.aux_t:self.t_pre+int(self.T0+self.aux_t*(1+self.multiplex))]
         self.ad_t0 = np.random.randint(125-self.T0, self.t_pre+self.T0, size=(self.data_aux.shape[0]*self.multiplex,), dtype=int)
         self.data_ad = res["Data"]
         self.freq = res["Label"]
@@ -134,7 +136,7 @@ class base_torch_mix_dataset(DD.Dataset):
         idid = []
         for i in range(self.multiplex):
             data.append(self.data[:, :, :, i * self.T0:(i + 1) * self.T0])
-            data_aux.append(self.data_aux[:, :, :, i * self.T0:(i + 1) * self.T0])
+            data_aux.append(self.data_aux[:, :, :, i * self.aux_t:i * self.aux_t + self.T0])
             label.append(self.label)
             idid.append(self.id)
         self.data = np.concatenate(data, axis=0)
@@ -212,9 +214,9 @@ def get_dataloader(config):
 
     print(len(EE_Train),len(EE_Test))
     
-    a = base_torch_mix_dataset(T0=my_t0, EE_Train=EE_Train, EE_Test=EE_Test, preprocess=preprocess, multiplex=multiplex, use_beta=use_beta, M=my_channel, filterbank=3, train=True, t_pre=init_t0)
+    a = base_torch_mix_dataset(T0=my_t0, EE_Train=EE_Train, EE_Test=EE_Test, deltT=config.delt_t, preprocess=preprocess, multiplex=multiplex, use_beta=use_beta, M=my_channel, filterbank=3, train=True, t_pre=init_t0)
 
-    b = base_torch_mix_dataset(T0=my_t0, EE_Train=EE_Train, EE_Test=EE_Test, preprocess=preprocess, multiplex=multiplex, use_beta=use_beta, M=my_channel, filterbank=3, train=False, t_pre=init_t0)
+    b = base_torch_mix_dataset(T0=my_t0, EE_Train=EE_Train, EE_Test=EE_Test, deltT=config.delt_t, preprocess=preprocess, multiplex=multiplex, use_beta=use_beta, M=my_channel, filterbank=3, train=False, t_pre=init_t0)
     
     
     return {

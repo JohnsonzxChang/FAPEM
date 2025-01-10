@@ -11,18 +11,19 @@ class Config(object):
     num_class = 40
     data_t0 = 50
     init_t0 = 125 + 35
-    multiplex = 3
+    multiplex = 5
+    delt_t = 10
     batch_size = 40
     channel = []
     for i in [48, 54, 55, 56, 57, 58, 61, 62, 63]:
         channel.append(i-1)
     idx = 0
     val_person_id = None
-    worker = 0
+    worker = 8
     
     
     # model config
-    task_name = 'classification'
+    task_name = 'short_term_forecast' # 'classification' # 'short_term_forecast'
     seq_len = data_t0
     pred_len = data_t0
     stride = 5
@@ -37,16 +38,16 @@ class Config(object):
     d_ff = 128
     
     # optimizer config
-    lr = 0.0001
+    lr = 0.001
     weight = 1e-5
     momentum = 0.9
     beta = (0.9, 0.999)
     epoch = 100
     
     # log config
-    device = 'mps'
-    log_dir = './runs'
-    model_dir = './saved_model'
+    device = 'cuda:0'
+    log_dir = '/home/zhangxu/logger'
+    model_dir = '/home/zhangxu/saved_model'
     model_name = 'model.pth'
 
 

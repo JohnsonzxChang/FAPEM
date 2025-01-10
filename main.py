@@ -10,11 +10,9 @@ from tqdm.rich import tqdm
 
 from conf import *
 from dt_simple import *
+from mills import *
 from Patch_SSVEP import SSVEPModel
 
-def accuracy(y_pred, y):
-    y_pred = th.argmax(y_pred, dim=1)
-    return th.sum(y_pred == y).item() / len(y)
 
 class Pipline(object):
     def __init__(self, conf, comment):
@@ -31,7 +29,7 @@ class Pipline(object):
         self.model = None
         self.criterion = None
         self.optimizer = None
-        self.logger = SummaryWriter(comment=comment)
+        self.logger = SummaryWriter(comment=comment, log_dir=self.conf.log_dir)
         
     def _load_data(self):
         raise NotImplementedError
@@ -61,8 +59,8 @@ class ClassificationPipline(Pipline):
         paras = []
         for name, param in self.model.named_parameters():
             param.requires_grad = True
-            paras.append({'params': param, 'lr': self.conf.lr, 'weight_decay': self.conf.weight})
-        self.optimizer = optimizer_fcn(paras, betas=self.conf.beta, momentum_decay=self.conf.momentum)
+            paras.append({'params': param, 'lr': self.conf.lr, }) # 'weight_decay': self.conf.weight})
+        self.optimizer = optimizer_fcn(paras) # , betas=self.conf.beta, momentum_decay=self.conf.momentum)
     
     def _load_ckpt(self):
         ckpt_path = os.path.join(self.conf.model_dir, self.conf.model_name)
@@ -152,16 +150,130 @@ class ClassificationPipline(Pipline):
         return False, local_loss, local_acc
     
 
+class ForcastPipline(Pipline):
+    def __init__(self, conf, comment):
+        super(ForcastPipline, self).__init__(conf, comment)
+        self.patience = None
+    
+    def _load_data(self, data_loader_fcn):
+        self.loader = data_loader_fcn(self.conf)
+        assert 'trn_dataloader' in self.loader.keys(), 'trn_dataloader not found'
+        assert 'val_dataloader' in self.loader.keys(), 'val_dataloader not found'
+    
+    def _model_optimizer_loss(self, model_fcn, criterion_instance, optimizer_fcn):
+        self.model = model_fcn(self.conf).to(self.conf.device)
+        self.criterion = nn.MSELoss()
+        paras = []
+        for name, param in self.model.named_parameters():
+            param.requires_grad = True
+            paras.append({'params': param, 'lr': self.conf.lr, }) # 'weight_decay': self.conf.weight})
+        self.optimizer = optimizer_fcn(paras) # , betas=self.conf.beta, momentum_decay=self.conf.momentum)
+    
+    def _load_ckpt(self):
+        ckpt_path = os.path.join(self.conf.model_dir, self.conf.model_name)
+        if os.path.exists(ckpt_path):
+            ckpt = th.load(ckpt_path, map_location=self.conf.device)
+            self.model.load_state_dict(ckpt['model'])
+            self.optimizer.load_state_dict(ckpt['optimizer'])
+        else:
+            raise ValueError('No checkpoint found')
+    
+    def _save_ckpt(self):
+        ckpt_path = os.path.join(self.conf.model_dir, self.conf.model_name)
+        th.save({'model': self.model.state_dict(), 'optimizer': self.optimizer.state_dict()}, 
+                ckpt_path)
+        
+    def _cla_flow(self, batch):
+        x = batch['data'].squeeze(0).to(self.conf.device)
+        ids = batch['id'].squeeze(0).to(self.conf.device)
+        y = batch['label'].squeeze(0).to(self.conf.device)
+        x_aux = batch['data_aux'].squeeze(0).to(self.conf.device).mean(dim=1)
+        x_pred = self.model(x)
+        assert x_pred.shape == x_aux.shape, 'Shape mismatch, x_pred %s, x_aux %s' % (x_pred.shape, x_aux.shape)
+        loss = self.criterion(x_pred, x_aux)
+        return loss, x_pred, x_aux
+    
+    def _conf_early_stop(self, patience=10, save_ckpt=True):
+        self.best_val_loss = np.inf
+        self.patience = patience
+        self.counter = 0
+        self.save_ckpt = save_ckpt
+    
+    def train(self, e, deltE=1):
+        self.model.train()
+        total_loss = 0
+        total_B = 0
+        # all_y_pred = None
+        # all_y = None
+        for i, batch in enumerate(self.loader['trn_dataloader']):
+            self.optimizer.zero_grad()
+            loss, y_pred, y = self._cla_flow(batch)
+            loss.backward()
+            self.optimizer.step()
+            total_loss += loss.item()
+            total_B += y.shape[0]
+            # if e % deltE == 0:
+            #     if all_y_pred is None:
+            #         all_y_pred = y_pred
+            #         all_y = y
+            #     else:
+            #         all_y_pred = th.cat((all_y_pred, y_pred), dim=0)
+            #         all_y = th.cat((all_y, y), dim=0)
+        if e % deltE == 0:
+            self.logger.add_scalar('train/loss', total_loss/total_B, e)
+            # self.logger.add_scalar('train/acc', accuracy(all_y_pred, all_y), e)
+    
+    def validate(self, e, deltE=1):
+        self.model.eval()
+        total_loss = 0
+        total_B = 0
+        # all_y_pred = None
+        # all_y = None
+        with th.no_grad():
+            for i, batch in enumerate(self.loader['val_dataloader']):
+                loss, y_pred, y = self._cla_flow(batch)
+                total_loss += loss.item()
+                total_B += y.shape[0]
+                # if e % deltE == 0:
+                #     if all_y_pred is None:
+                #         all_y_pred = y_pred
+                #         all_y = y
+                #     else:
+                #         all_y_pred = th.cat((all_y_pred, y_pred), dim=0)
+                #         all_y = th.cat((all_y, y), dim=0)
+            if e % deltE == 0:
+                local_loss = total_loss/total_B
+                # local_acc = accuracy(all_y_pred, all_y)
+                self.logger.add_scalar('val/loss', local_loss, e)
+                # self.logger.add_scalar('val/acc', local_acc, e)
+                if self.patience is not None:
+                    if local_loss < self.best_val_loss or self.best_val_loss == np.inf:
+                        self.best_val_loss = local_loss
+                        self.counter = 0
+                        if self.save_ckpt:
+                            self._save_ckpt()
+                    else:
+                        self.counter += 1
+                        if self.counter >= self.patience:
+                            return True, local_loss, None
+        return False, local_loss, None 
+
+
 def main():
+    # set seed
+    setup_seed(10086)
     # load config
     # conf = load_yaml('conf.yaml')
     conf = Config()
     # init pipline
-    pipline = ClassificationPipline(conf, comment='classification')
+    if conf.task_name == 'short_term_forecast':
+        pipline = ForcastPipline(conf, comment='short_term_forecast')
+    elif conf.task_name == 'classification':
+        pipline = ClassificationPipline(conf, comment='classification')
     # load data
     pipline._load_data(data_loader_fcn=get_dataloader)
     # model, optimizer, loss
-    pipline._model_optimizer_loss(SSVEPModel, nn.CrossEntropyLoss(), optim.NAdam)
+    pipline._model_optimizer_loss(SSVEPModel, CrossEntropyLabelSmooth(40, 0.1), optim.Adam)
     # load ckpt
     # pipline._load_ckpt()
     # early stop
@@ -171,7 +283,7 @@ def main():
         pipline.train(e)
         stop, local_loss, local_acc = pipline.validate(e)
         if stop:
-            print('Early stop at epoch %d, val loss %.4f, val acc %.4f' % (e, local_loss, local_acc))
+            print(f'Early stop at epoch {e}, val loss {local_loss}, val acc {local_acc}')
             break
     pipline.logger.close()
     

@@ -32,10 +32,10 @@ class Config(object):
     n_heads = 6
     activation = 'relu'
     dropout = 0.25
-    e_layers = 3
+    e_layers = 5
     enc_in = len(channel)
-    d_model = 32
-    d_ff = 128
+    d_model = 64
+    d_ff = 1024
     
     # optimizer config
     lr = 0.001

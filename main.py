@@ -170,7 +170,7 @@ class ForcastPipline(Pipline):
         self.optimizer = optimizer_fcn(paras) # , betas=self.conf.beta, momentum_decay=self.conf.momentum)
     
     def _load_ckpt(self):
-        ckpt_path = os.path.join(self.conf.model_dir, self.conf.model_name)
+        ckpt_path = os.path.join(self.conf.model_dir, f'saved_{self.conf.model_name}')
         if os.path.exists(ckpt_path):
             ckpt = th.load(ckpt_path, map_location=self.conf.device)
             self.model.load_state_dict(ckpt['model'])
@@ -257,9 +257,21 @@ class ForcastPipline(Pipline):
                         if self.counter >= self.patience:
                             return True, local_loss, None
         return False, local_loss, None 
+    
+    def view_result(self, n):
+        with th.no_grad():
+            for i, batch in enumerate(self.loader['val_dataloader']):
+                loss, x_pred, x = self._cla_flow(batch)
+            # plot last batch
+            plt.figure()
+            plt.plot(x.cpu().numpy()[n,:,:].T, label='x', color='r')
+            plt.plot(x_pred.cpu().numpy()[n,:,:].T, label='x_pred', color='b')
+            plt.legend()
+            plt.show()
+        print('show done')
 
 
-def main():
+def main(train=True):
     # set seed
     setup_seed(10086)
     # load config
@@ -279,13 +291,26 @@ def main():
     # early stop
     pipline._conf_early_stop(patience=10, save_ckpt=True)
     # train and validate
-    for e in tqdm(range(conf.epoch)):
-        pipline.train(e)
-        stop, local_loss, local_acc = pipline.validate(e)
-        if stop:
-            print(f'Early stop at epoch {e}, val loss {local_loss}, val acc {local_acc}')
-            break
-    pipline.logger.close()
+    if train:
+        for e in tqdm(range(conf.epoch)):
+            pipline.train(e)
+            stop, local_loss, local_acc = pipline.validate(e)
+            if stop:
+                print(f'Early stop at epoch {e}, val loss {local_loss}, val acc {local_acc}')
+                break
+        pipline.logger.close()
+    else:
+        pipline._load_ckpt()
+    return pipline
     
 if __name__ == '__main__':
-    main()
+    pipline = main(False)
+    # input data number
+    while True:
+        n = input('Input data number to view result: ')
+        try:
+            n = int(n)
+        except:
+            print('Invalid input, stop')
+            break
+        pipline.view_result(int(n))

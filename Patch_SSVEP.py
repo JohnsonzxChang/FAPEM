@@ -291,6 +291,7 @@ class SSVEPModel(nn.Module):
             self.dropout = nn.Dropout(0.95)
             self.projection = nn.Linear(
                 configs.seq_len * configs.d_model * configs.enc_in, configs.num_class)
+        
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer
@@ -456,11 +457,11 @@ class SSVEPModel(nn.Module):
     
     def forecast_simple(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer
-        # means = x_enc.mean(1, keepdim=True).detach()
-        # x_enc = x_enc - means
-        # stdev = torch.sqrt(
-        #     torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-        # x_enc /= stdev
+        means = x_enc.mean(2, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(
+            torch.var(x_enc, dim=2, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
         n_vars = x_enc.shape[1]
         # do patching and embedding
         # x_enc = x_enc.permute(0, 2, 1)
@@ -479,12 +480,13 @@ class SSVEPModel(nn.Module):
         # Decoder
         dec_out = self.head(enc_out)  # z: [bs x nvars x target_window]
         dec_out = dec_out.permute(0, 2, 1)
-
+        # assert dec_out.shape == (x_enc.shape[0], 50, 9)
+        # assert stdev.shape == (x_enc.shape[0], 9, 1, 3), stdev.shape
         # # De-Normalization from Non-stationary Transformer
-        # dec_out = dec_out * \
-        #           (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-        # dec_out = dec_out + \
-        #           (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out * \
+                  (stdev[:, :, 0, 0].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + \
+                  (means[:, :, 0, 0].unsqueeze(1).repeat(1, self.pred_len, 1))
         # print(dec_out.shape)
         return dec_out
 

@@ -155,8 +155,8 @@ class base_torch_mix_dataset(DD.Dataset):
         print("ssssssssssssssssssssssssssssssssssssssss", self.id.shape, self.label.shape, self.data.shape, self.data_aux.shape, self.data_ad.shape, self.label_ad.shape)
 
     def _preprocess_data(self, x):
-        x = (x - np.mean(x, axis=-1, keepdims=True)
-             ) / np.std(x, axis=-1, keepdims=True)
+        x = x - np.mean(x, axis=-1, keepdims=True)
+        x = x / np.amax(x, axis=-1, keepdims=True)
         return x
 
     def __len__(self):
@@ -196,7 +196,7 @@ def get_dataloader(config):
     val_idx = config.idx
     val_person_id = config.val_person_id
     init_t0 = config.init_t0
-    preprocess = False
+    preprocess = True
     multiplex = config.multiplex
     EE_Train = []
     EE_Test = []
@@ -221,10 +221,10 @@ def get_dataloader(config):
     
     return {
         'trn_dataloader': DD.DataLoader(a,
-                                     batch_size=batch_size, shuffle=True, pin_memory=False,
+                                     batch_size=batch_size, shuffle=True, pin_memory=True,
                                      num_workers=my_worker),
         'val_dataloader': DD.DataLoader(b,
-                                     batch_size=batch_size, shuffle=False, pin_memory=False,
+                                     batch_size=batch_size, shuffle=False, pin_memory=True,
                                      num_workers=my_worker)
     }
 

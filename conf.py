@@ -11,7 +11,7 @@ class Config(object):
     num_class = 40
     data_t0 = 50
     init_t0 = 125 + 35
-    multiplex = 5
+    multiplex = 1
     delt_t = 10
     batch_size = 40
     channel = []
@@ -19,20 +19,21 @@ class Config(object):
         channel.append(i-1)
     idx = 0
     val_person_id = None
-    worker = 8
+    worker = 12
     
     
     # model config
     task_name = 'short_term_forecast' # 'classification' # 'short_term_forecast'
+    warmup = 50
     seq_len = data_t0
     pred_len = data_t0
     stride = 5
     patch_len = 10
     factor = 2
-    n_heads = 6
+    n_heads = 8
     activation = 'relu'
-    dropout = 0.25
-    e_layers = 5
+    dropout = 0.15
+    e_layers = 3
     enc_in = len(channel)
     d_model = 64
     d_ff = 1024
@@ -42,7 +43,7 @@ class Config(object):
     weight = 1e-5
     momentum = 0.9
     beta = (0.9, 0.999)
-    epoch = 100
+    epoch = 200
     
     # log config
     device = 'cuda:0'

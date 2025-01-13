@@ -124,7 +124,7 @@ class VanillaTransformer(nn.Module):
         # Embedding layers
         self.embedding = nn.Linear(3, config.d_model)
         self.pos_encoding = self._create_positional_encoding()
-        print(self.pos_encoding.shape)
+        # print(self.pos_encoding.shape)
         
         # Create encoder layers
         self.encoder_layers = nn.ModuleList([
@@ -151,14 +151,17 @@ class VanillaTransformer(nn.Module):
         x = x.permute(0, 2, 3, 1)
         
         x = self.embedding(x)
-        print(x.shape)
+        # print(x.shape)
         x = x + self.pos_encoding[:, :, :x.size(2), :]
         x = self.dropout(x)
         
         for layer in self.encoder_layers:
             x = layer(x, mask)
-            
-        return self.output_layer(x)
+        x = self.output_layer(x)
+        
+        x = x.permute(0, 3, 1, 2)
+        # print(x.shape)
+        return x
     
     
 if __name__ == '__main__':

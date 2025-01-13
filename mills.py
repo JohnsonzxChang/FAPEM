@@ -5,8 +5,11 @@ import random
 from torch import nn
 
 def accuracy(y_pred, y):
-    y_pred = th.argmax(y_pred, dim=1)
-    return th.sum(y_pred == y).item() / len(y)
+    try:
+        y_pred = th.argmax(y_pred, dim=1)
+        return th.sum(y_pred == y).item() / len(y)
+    except:
+        return 0
 
 def setup_seed(seed):
     th.manual_seed(seed)

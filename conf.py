@@ -12,7 +12,7 @@ class Config(object):
     data_t0 = 50
     init_t0 = 125 + 35
     multiplex = 1
-    delt_t = 10
+    delt_t = 50
     batch_size = 80
     channel = []
     for i in [48, 54, 55, 56, 57, 58, 61, 62, 63]:
@@ -55,7 +55,7 @@ class Config(object):
     compress = 4
     
     # optimizer config
-    lr = 0.001
+    lr = 0.00003
     weight = 1e-5
     momentum = 0.1
     beta = (0.9, 0.999)

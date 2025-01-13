@@ -15,7 +15,7 @@ from Patch_SSVEP import SSVEPModel
 from GT_SSVEP import Model
 from ts_SSVEP import SSVEPModelAll
 from originCNN import SSVEP_Net
-
+from vani_SSVEP import VanillaTransformer
 
 class Pipline(object):
     def __init__(self, conf, comment):
@@ -583,17 +583,19 @@ class StepPipline(Pipline):
         ids = batch['id'].squeeze(0).to(self.conf.device)
         y = batch['label'].squeeze(0).to(self.conf.device)
         x_aux = batch['data_aux'].squeeze(0).to(self.conf.device).reshape((-1, 3*9, 50))
-        y_pred, x_pred = self.model(x)
+        # y_pred, x_pred = self.model(x)
+        x_pred = self.model(x)
+        y_pred = y
         x_pred = x_pred.reshape((-1, 9*3, 50))
         assert x_pred.shape == x_aux.shape, 'Shape mismatch, x_pred %s, x_aux %s' % (x_pred.shape, x_aux.shape)
         # assert x_pred.shape[1] == 9, 'Shape mismatch, x_pred %s' % (x_pred.shape)
         loss1, loss2 = 0, 0
         for i in range(x_pred.shape[1]):
-            loss1 += self.criterion1(x_pred[:,i,:], x_aux[:,i,:]) * 0.0#10
-            loss2 += self.criterion2(x_pred[:,i,:], x_aux[:,i,:]) * 0.0#05
+            loss1 += self.criterion1(x_pred[:,i,:], x_aux[:,i,:]) * 0.9#10
+            loss2 += self.criterion2(x_pred[:,i,:], x_aux[:,i,:]) * 0.1#05
         loss1 = loss1 / x_pred.shape[1]
         loss2 = loss2 / x_pred.shape[1]
-        loss3 = self.criterionCla(y_pred, y) #* (e > self.conf.warmup) * 1.0
+        loss3 = th.tensor(0) # self.criterionCla(y_pred, y) * 0.0 #* (e > self.conf.warmup) * 1.0
         return [loss1, loss2, loss3], [x_pred, x_aux], [y_pred, y]
     
     def _conf_early_stop(self, patience=10, save_ckpt=True):
@@ -613,7 +615,7 @@ class StepPipline(Pipline):
         for i, batch in enumerate(self.loader['trn_dataloader']):
             self.optimizer.zero_grad()
             loss, _, [y_pred, y] = self._mix_flow(batch, e)
-            (loss[0] + loss[1] + loss[2]).backward() #  + loss[2]
+            (loss[0] + loss[1]).backward() #  + loss[2]
             self.optimizer.step()
             total_loss1 += loss[0].item()
             total_loss2 += loss[1].item()
@@ -680,15 +682,16 @@ class StepPipline(Pipline):
         with th.no_grad():
             for i, batch in enumerate(self.loader['val_dataloader']):
                 loss, [x_pred, x_aux], [y_pred, y] = self._mix_flow(batch, 0)
-                self.optimizer.step()
+                # self.optimizer.step()
             # plot last batch
             plt.figure()
-            NN = 3*9
-            for j in range(NN):
-                plt.subplot(NN,1,j+1)
-                plt.plot(x_aux.cpu().numpy()[n,j,:].T, label='x', color='r')
-                plt.plot(x_pred.cpu().numpy()[n,j,:].T, label='x_pred', color='b')
-            plt.legend()
+            for k in range(3):
+                for j in range(9):
+                    plt.subplot(9,3,j*3+k+1)
+                    plt.plot(x_aux.cpu().numpy()[n,j*3+k,:].T, label='x', color='r')
+                    plt.plot(x_pred.cpu().numpy()[n,j*3+k,:].T, label='x_pred', color='b')
+                    plt.ylabel(f'{j},{k}')
+                    plt.legend()
             plt.show()
         print('show done')
 
@@ -710,14 +713,14 @@ def main(train=True):
         netClass = SSVEPModel
     elif conf.task_name == 'Step':
         pipline = StepPipline(conf, comment='classification')
-        netClass = SSVEPModelAll
+        netClass = VanillaTransformer # SSVEPModelAll
     elif conf.task_name == 'Benchmark':
         pipline = BenchmarkPipline(conf, comment='classification')
         netClass = SSVEP_Net
     # load data
     pipline._load_data(data_loader_fcn=get_dataloader)
     # model, optimizer, loss
-    pipline._model_optimizer_loss(netClass, CrossEntropyLabelSmooth(40, 0.1), optim.NAdam) # CrossEntropyLabelSmooth(40, 0.1)
+    pipline._model_optimizer_loss(netClass, CrossEntropyLabelSmooth(40, 0.1), optim.Adam) # CrossEntropyLabelSmooth(40, 0.1)
     # load ckpt
     # pipline._load_ckpt()
     # early stop

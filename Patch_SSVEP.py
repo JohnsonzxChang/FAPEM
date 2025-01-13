@@ -237,6 +237,27 @@ class FlattenHead(nn.Module):
         x = self.dropout(x)
         return x
 
+class CombineHead(nn.Module):
+    def __init__(self, n_vars, d_model, seq_len, tgt_vars, head_dropout=0):
+        super().__init__()
+        self.n_vars = n_vars
+        self.seq_len = seq_len
+        self.tgt_vars = tgt_vars
+        self.flatten = nn.Flatten(start_dim=-2)
+        self.linear = nn.Sequential(
+            nn.Linear(d_model*seq_len, seq_len//5), 
+            nn.ReLU(),
+            nn.Linear(seq_len//5, seq_len*tgt_vars)
+        )
+        self.dropout = nn.Dropout(head_dropout)
+
+    def forward(self, x):  # x: [bs x nvars x d_model x patch_num]
+        x = self.flatten(x)
+        x = self.linear(x)
+        x = self.dropout(x)
+        x = x.reshape((-1, self.n_vars, self.seq_len, self.tgt_vars))
+        return x
+
 class SSVEPModel(nn.Module):
     """
     Paper link: https://arxiv.org/pdf/2211.14730.pdf

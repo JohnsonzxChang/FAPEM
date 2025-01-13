@@ -13,7 +13,7 @@ class Config(object):
     init_t0 = 125 + 35
     multiplex = 1
     delt_t = 10
-    batch_size = 40
+    batch_size = 80
     channel = []
     for i in [48, 54, 55, 56, 57, 58, 61, 62, 63]:
         channel.append(i-1)
@@ -23,7 +23,7 @@ class Config(object):
     
     
     # model config
-    task_name = 'short_term_forecast' # 'classification' # 'short_term_forecast'
+    task_name = 'Step' # 'classification' # 'short_term_forecast'
     warmup = 50
     seq_len = data_t0
     pred_len = data_t0
@@ -38,10 +38,26 @@ class Config(object):
     d_model = 64
     d_ff = 1024
     
+    N = [3, 64, 64, 64, 64]
+    t = [3, 7, 3, 7]
+    F = 250
+    s = [1, 1, 2, 1]
+    p = [1, 3, 1, 3]
+    H = [5, 3, 1]
+    non_linear = 'relu'
+    norm = 'batch'
+    drop = [0.1, 0.1, 0.1, 0.9]
+    emb = 120
+    mid = 40*4
+    bias = [True, False, False]
+    chn_att = True
+    ica = 10
+    compress = 4
+    
     # optimizer config
     lr = 0.001
     weight = 1e-5
-    momentum = 0.9
+    momentum = 0.1
     beta = (0.9, 0.999)
     epoch = 200
     

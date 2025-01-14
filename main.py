@@ -561,8 +561,8 @@ class StepPipline(Pipline):
         paras = []
         for name, param in self.model.named_parameters():
             param.requires_grad = True
-            paras.append({'params': param, 'lr': self.conf.lr, }) # 'weight_decay': self.conf.weight})
-        self.optimizer = optimizer_fcn(paras) # , betas=self.conf.beta, momentum_decay=self.conf.momentum)
+            paras.append({'params': param, 'lr': self.conf.lr, 'weight_decay': self.conf.weight})
+        self.optimizer = optimizer_fcn(paras, betas=self.conf.beta, momentum_decay=self.conf.momentum)
     
     def _load_ckpt(self):
         ckpt_path = os.path.join(self.conf.model_dir, f'{self.conf.model_name}')
@@ -591,7 +591,7 @@ class StepPipline(Pipline):
         # assert x_pred.shape[1] == 9, 'Shape mismatch, x_pred %s' % (x_pred.shape)
         loss1, loss2 = 0, 0
         for i in range(x_pred.shape[1]):
-            loss1 += self.criterion1(x_pred[:,i,:], x_aux[:,i,:]) * 0.9#10
+            loss1 += self.criterion2(x_pred[:,i,:], x_aux[:,i,:]) * 1.0#10
             loss2 += self.criterion2(x_pred[:,i,:], x_aux[:,i,:]) * 0.1#05
         loss1 = loss1 / x_pred.shape[1]
         loss2 = loss2 / x_pred.shape[1]
@@ -615,7 +615,7 @@ class StepPipline(Pipline):
         for i, batch in enumerate(self.loader['trn_dataloader']):
             self.optimizer.zero_grad()
             loss, _, [y_pred, y] = self._mix_flow(batch, e)
-            (loss[0] + loss[1]).backward() #  + loss[2]
+            (loss[0]).backward() #  + loss[1] + loss[2]
             self.optimizer.step()
             total_loss1 += loss[0].item()
             total_loss2 += loss[1].item()
@@ -667,16 +667,16 @@ class StepPipline(Pipline):
                 self.logger.add_scalar('val/loss3', local_loss3, e)
                 self.logger.add_scalar('val/acc', local_acc, e)
                 if self.patience is not None:
-                    if local_loss3 <= self.best_val_loss or self.best_val_loss == np.inf or e <= self.conf.warmup*2:
-                        self.best_val_loss = local_loss3
+                    if local_loss1 < self.best_val_loss or self.best_val_loss == np.inf or e <= self.conf.warmup:
+                        self.best_val_loss = local_loss1
                         self.counter = 0
                         if self.save_ckpt:
                             self._save_ckpt()
                     else:
                         self.counter += 1
                         if self.counter >= self.patience:
-                            return True, local_loss3, None
-        return False, local_loss3, None 
+                            return True, local_loss1, None
+        return False, local_loss1, None 
     
     def view_result(self, n):
         with th.no_grad():
@@ -720,7 +720,7 @@ def main(train=True):
     # load data
     pipline._load_data(data_loader_fcn=get_dataloader)
     # model, optimizer, loss
-    pipline._model_optimizer_loss(netClass, CrossEntropyLabelSmooth(40, 0.1), optim.Adam) # CrossEntropyLabelSmooth(40, 0.1)
+    pipline._model_optimizer_loss(netClass, CrossEntropyLabelSmooth(40, 0.1), optim.NAdam) # CrossEntropyLabelSmooth(40, 0.1)
     # load ckpt
     # pipline._load_ckpt()
     # early stop

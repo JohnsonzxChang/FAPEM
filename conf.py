@@ -11,7 +11,7 @@ class Config(object):
     num_class = 40
     data_t0 = 50
     init_t0 = 125 + 35
-    multiplex = 1
+    multiplex = 5
     delt_t = 50
     batch_size = 80
     channel = []
@@ -55,9 +55,9 @@ class Config(object):
     compress = 4
     
     # optimizer config
-    lr = 0.00003
+    lr = 0.00001
     weight = 1e-5
-    momentum = 0.1
+    momentum = 0.9
     beta = (0.9, 0.999)
     epoch = 200
     

@@ -23,7 +23,7 @@ class Config(object):
     
     
     # model config
-    task_name = 'Step' # 'classification' # 'short_term_forecast'
+    task_name = 'Imputation' # 'classification' # 'short_term_forecast'
     warmup = 50
     seq_len = data_t0
     pred_len = data_t0

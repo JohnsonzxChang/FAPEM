@@ -738,14 +738,15 @@ class ImputationPipline(Pipline):
         y = batch['label'].squeeze(0).to(self.conf.device)
         # x_aux = batch['data_aux'].squeeze(0).to(self.conf.device).reshape((-1, 3*9, 50))
         # 生成mask
-        if self.conf.mask_method == 'random':
+        B,C,M,T = x.shape
+        if self.conf.mask_mode == 'random':
             # 随机mask
-            mask = torch.bernoulli(torch.ones_like(x) * self.conf.mask_ratio).to(x.device)
-        elif self.conf.mask_method == 'continous':
+            mask = torch.bernoulli(torch.ones(B,C,1,T) * self.conf.mask_ratio).to(x.device)
+            mask = mask.repeat(1, 1, M, 1)
+        elif self.conf.mask_mode == 'continous':
             # 连续mask
             mask = torch.zeros_like(x)
             # 配置连续mask的长度范围
-            B,C,M,T = x.shape
             min_mask_len = max(1, int(T * (1.0- self.conf.mask_ratio)))
             max_mask_len = int(T * 1.0)
             
@@ -768,7 +769,7 @@ class ImputationPipline(Pipline):
         x_pred = self.model(x_masked)
         y_pred = y
         loss1 = self.criterion2(x_pred * mask, x * mask) * 1.0#10
-        loss2 = self.criterion2((x_pred[:,:,:,1:]-x_pred[:,:,:,:-1]) * mask, (x[:,:,:,1:]-x[:,:,:,:-1]) * mask) * 1e-1#05
+        loss2 = self.criterion2((x_pred[:,:,:,1:]-x_pred[:,:,:,:-1]) * mask[:,:,:,:-1], (x[:,:,:,1:]-x[:,:,:,:-1]) * mask[:,:,:,:-1]) * 1e-1#05
         # loss2 = 0.1 * th.mean(th.relu(th.log(th.std(x_aux,dim=-1)) - th.log(th.std(x_pred,dim=-1))))
         loss3 = th.tensor(0) # self.criterionCla(y_pred, y) * 0.0 #* (e > self.conf.warmup) * 1.0
         return [loss1, loss2, loss3], [x_pred, x], [y_pred, y]
@@ -863,8 +864,8 @@ class ImputationPipline(Pipline):
             for k in range(3):
                 for j in range(9):
                     plt.subplot(9,3,j*3+k+1)
-                    plt.plot(x_aux.cpu().numpy()[n,j*3+k,:].T, label='x', color='r')
-                    plt.plot(x_pred.cpu().numpy()[n,j*3+k,:].T, label='x_pred', color='b')
+                    plt.plot(x_aux.cpu().numpy()[n,k,j,:].T, label='x', color='r')
+                    plt.plot(x_pred.cpu().numpy()[n,k,j,:].T, label='x_pred', color='b')
                     plt.ylabel(f'{j},{k}')
                     plt.legend()
             plt.show()
@@ -894,14 +895,17 @@ def main(train=True):
     elif conf.task_name == 'Benchmark':
         pipline = BenchmarkPipline(conf, comment='classification')
         netClass = SSVEP_Net
+    elif conf.task_name == 'Imputation':
+        pipline = ImputationPipline(conf, comment='Imputation')
+        netClass = VanillaTransformer # SSVEPModelAll
     # load data
     pipline._load_data(data_loader_fcn=get_dataloader)
     # model, optimizer, loss
     pipline._model_optimizer_loss(netClass, CrossEntropyLabelSmooth(40, 0.1), optim.Adam) # CrossEntropyLabelSmooth(40, 0.1)
     # load ckpt
-    pipline._load_ckpt()
+    # pipline._load_ckpt()
     # early stop
-    pipline._conf_early_stop(patience=200, save_ckpt=True)
+    pipline._conf_early_stop(patience=10, save_ckpt=True)
     # train and validate
     if train:
         for e in tqdm(range(conf.epoch)):

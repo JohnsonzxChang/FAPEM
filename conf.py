@@ -11,9 +11,9 @@ class Config(object):
     num_class = 40
     data_t0 = 50
     init_t0 = 125 + 35
-    multiplex = 5
-    delt_t = 50
-    batch_size = 80
+    multiplex = 1
+    delt_t = 30
+    batch_size = 40
     channel = []
     for i in [48, 54, 55, 56, 57, 58, 61, 62, 63]:
         channel.append(i-1)

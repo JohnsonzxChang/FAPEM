@@ -6,6 +6,8 @@ from typing import Optional, Callable
 import math
 from conf import Config
 
+activation = nn.GELU
+
 class AttentionInterface(nn.Module):
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
                 mask: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -75,7 +77,7 @@ class TransformerEncoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(config.d_model)
         self.ff1 = nn.Sequential(
             nn.Linear(config.d_model, config.d_ff),
-            nn.ReLU(),
+            activation(),
             nn.Dropout(config.dropout),
             nn.Linear(config.d_ff, config.d_model)
         )
@@ -86,7 +88,7 @@ class TransformerEncoderLayer(nn.Module):
         self.norm3 = nn.LayerNorm(config.d_model)
         self.ff2 = nn.Sequential(
             nn.Linear(config.d_model, config.d_ff),
-            nn.ReLU(),
+            activation(),
             nn.Dropout(config.dropout),
             nn.Linear(config.d_ff, config.d_model)
         )

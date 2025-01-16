@@ -736,22 +736,42 @@ class ImputationPipline(Pipline):
         x = batch['data'].squeeze(0).to(self.conf.device)
         ids = batch['id'].squeeze(0).to(self.conf.device)
         y = batch['label'].squeeze(0).to(self.conf.device)
-        x_aux = batch['data_aux'].squeeze(0).to(self.conf.device).reshape((-1, 3*9, 50))
-        # y_pred, x_pred = self.model(x)
-        x_pred = self.model(x)
+        # x_aux = batch['data_aux'].squeeze(0).to(self.conf.device).reshape((-1, 3*9, 50))
+        # 生成mask
+        if self.conf.mask_method == 'random':
+            # 随机mask
+            mask = torch.bernoulli(torch.ones_like(x) * self.conf.mask_ratio).to(x.device)
+        elif self.conf.mask_method == 'continous':
+            # 连续mask
+            mask = torch.zeros_like(x)
+            # 配置连续mask的长度范围
+            B,C,M,T = x.shape
+            min_mask_len = max(1, int(T * (1.0- self.conf.mask_ratio)))
+            max_mask_len = int(T * 1.0)
+            
+            for b in range(B):
+                for c in range(C):
+                    for m in range(M):
+                        # 随机选择mask长度
+                        mask_len = torch.randint(min_mask_len, max_mask_len+1, (1,)).item()
+                        
+                        # 随机选择起始位置
+                        start_idx = torch.randint(0, T - mask_len + 1, (1,)).item()
+                        
+                        # 生成连续mask
+                        mask[b, c, m, start_idx:start_idx+mask_len] = 1
+        else:
+            raise ValueError('Unknown mask method')
+        
+        # 生成masked输入
+        x_masked = x * (1 - mask) # + noise * mask 是否要加噪声？
+        x_pred = self.model(x_masked)
         y_pred = y
-        x_pred = x_pred.reshape((-1, 9*3, 50))
-        assert x_pred.shape == x_aux.shape, 'Shape mismatch, x_pred %s, x_aux %s' % (x_pred.shape, x_aux.shape)
-        # assert x_pred.shape[1] == 9, 'Shape mismatch, x_pred %s' % (x_pred.shape)
-        loss1 = 0
-        loss2 = 0
-        for i in range(x_pred.shape[1]):
-            loss1 += self.criterion2(x_pred[:,i,:], x_aux[:,i,:]) * 1.0#10
-            loss2 += self.criterion2(x_pred[:,i,1:]-x_pred[:,i,:-1], x_aux[:,i,1:]-x_aux[:,i,:-1]) * 1e-1#05
-        loss1 = loss1 / x_pred.shape[1]
+        loss1 = self.criterion2(x_pred * mask, x * mask) * 1.0#10
+        loss2 = self.criterion2((x_pred[:,:,:,1:]-x_pred[:,:,:,:-1]) * mask, (x[:,:,:,1:]-x[:,:,:,:-1]) * mask) * 1e-1#05
         # loss2 = 0.1 * th.mean(th.relu(th.log(th.std(x_aux,dim=-1)) - th.log(th.std(x_pred,dim=-1))))
         loss3 = th.tensor(0) # self.criterionCla(y_pred, y) * 0.0 #* (e > self.conf.warmup) * 1.0
-        return [loss1, loss2, loss3], [x_pred, x_aux], [y_pred, y]
+        return [loss1, loss2, loss3], [x_pred, x], [y_pred, y]
     
     def _conf_early_stop(self, patience=10, save_ckpt=True):
         self.best_val_loss = np.inf

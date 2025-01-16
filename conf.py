@@ -61,6 +61,10 @@ class Config(object):
     beta = (0.9, 0.999)
     epoch = 200
     
+    # task config
+    mask_ratio = 0.4
+    mask_mode = 'random'
+    
     # log config
     device = 'cuda:0'
     log_dir = '/home/zhangxu/logger'

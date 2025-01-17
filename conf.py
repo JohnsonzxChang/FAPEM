@@ -21,9 +21,11 @@ class Config(object):
     val_person_id = None
     worker = 12
     
+    diff_num_step = 500
+    diff_beta = [1e-4, 0.02]
     
     # model config
-    task_name = 'Imputation' # 'classification' # 'short_term_forecast'
+    task_name = 'Diffusion' # 'classification' # 'short_term_forecast'
     warmup = 50
     seq_len = data_t0
     pred_len = data_t0

@@ -16,6 +16,7 @@ from GT_SSVEP import Model
 from ts_SSVEP import SSVEPModelAll
 from originCNN import SSVEP_Net
 from vani_SSVEP import VanillaTransformer
+from diff import ConditionalUNet, DiffusionModel
 
 class Pipline(object):
     def __init__(self, conf, comment):
@@ -431,7 +432,6 @@ class MixPipline(Pipline):
             plt.show()
         print('show done')
 
-
 class BenchmarkPipline(Pipline):
     def __init__(self, conf, comment):
         super(BenchmarkPipline, self).__init__(conf, comment)
@@ -696,7 +696,6 @@ class StepPipline(Pipline):
             plt.show()
         print('show done')
 
-
 class ImputationPipline(Pipline):
     def __init__(self, conf, comment):
         super(ImputationPipline, self).__init__(conf, comment)
@@ -871,6 +870,169 @@ class ImputationPipline(Pipline):
             plt.show()
         print('show done')
 
+class UnetDiffPipline(Pipline):
+    def __init__(self, conf, comment):
+        super(UnetDiffPipline, self).__init__(conf, comment)
+        self.patience = None
+    
+    def _load_data(self, data_loader_fcn):
+        self.loader = data_loader_fcn(self.conf)
+        assert 'trn_dataloader' in self.loader.keys(), 'trn_dataloader not found'
+        assert 'val_dataloader' in self.loader.keys(), 'val_dataloader not found'
+    
+    def _model_optimizer_loss(self, model_fcn, criterion_instance, optimizer_fcn):
+        self.model = model_fcn(self.conf).to(self.conf.device)
+        self.diffusion = DiffusionModel(self.conf) # .to(self.conf.device)
+        # A = torch.tensor(np.random.random((9, 9))).to(self.conf.device)
+        # self.model = Model(num_node=9, input_dim=3, hidden_dim=8, output_dim=32, embed_dim=64, 
+        #             cheb_k=3, horizon=50, num_layers=4, heads=4, A=A, kernel_size=3, max_len=50).to(self.conf.device)
+        
+        self.criterion1 = nn.MSELoss()
+        self.criterion2 = nn.MSELoss()
+        self.criterionCla = criterion_instance
+        paras = []
+        for name, param in self.model.named_parameters():
+            param.requires_grad = True
+            paras.append({'params': param, 'lr': self.conf.lr})#, 'weight_decay': self.conf.weight})
+        self.optimizer = optimizer_fcn(paras)#, betas=self.conf.beta, momentum_decay=self.conf.momentum)
+    
+    def _load_ckpt(self):
+        ckpt_path = os.path.join(self.conf.model_dir, f'{self.conf.model_name}')
+        if os.path.exists(ckpt_path):
+            ckpt = th.load(ckpt_path, map_location=self.conf.device)
+            self.model.load_state_dict(ckpt['model'])
+            self.optimizer.load_state_dict(ckpt['optimizer'])
+        else:
+            raise ValueError('No checkpoint found')
+    
+    def _save_ckpt(self):
+        ckpt_path = os.path.join(self.conf.model_dir, self.conf.model_name)
+        th.save({'model': self.model.state_dict(), 'optimizer': self.optimizer.state_dict()}, 
+                ckpt_path)
+        
+    def _mix_flow(self, batch, e):
+        x = batch['data'].squeeze(0).to(self.conf.device)
+        ids = batch['id'].squeeze(0).to(self.conf.device)
+        y = batch['label'].squeeze(0).to(self.conf.device)
+        x_aux = batch['data_aux'].squeeze(0).to(self.conf.device).reshape((-1, 3*9, 50))
+        
+        # 随机时间步
+        t = torch.randint(0, self.diffusion.num_steps, (x.shape[0],)).to(self.conf.device)
+        
+        # 前向扩散
+        noisy_images, noise = self.diffusion.forward_diffusion(x, t)
+        
+        # 预测噪声
+        predicted_noise = self.model(noisy_images, t, y)
+        
+        # 计算损失
+        loss1 = FF.mse_loss(predicted_noise, noise)
+        
+        all_ref = self.diffusion.sample_all_class(self.model, range(self.conf.num_class), x.shape, self.conf.device)
+        x_pred = self.model.combine_all(x)# or x
+        all_ref = self.model.combine(all_ref)
+        y_pred = self.model.corr(x_pred, all_ref)
+        assert y_pred.shape[-1] == 40, 'Shape mismatch, y_pred %s' % (y_pred.shape)
+        loss2 = self.criterionCla(y_pred, y)
+        return [loss1, loss2], [x_pred, all_ref], [y_pred, y]
+    
+    def _conf_early_stop(self, patience=10, save_ckpt=True):
+        self.best_val_loss = np.inf
+        self.patience = patience
+        self.counter = 0
+        self.save_ckpt = save_ckpt
+    
+    def train(self, e, deltE=1):
+        self.model.train()
+        total_loss1 = 0
+        total_loss2 = 0
+        # total_loss3 = 0
+        total_B = 0
+        all_y_pred = None
+        all_y = None
+        for i, batch in enumerate(self.loader['trn_dataloader']):
+            self.optimizer.zero_grad()
+            loss, _, [y_pred, y] = self._mix_flow(batch, e)
+            (loss[0]+ loss[1]).backward() #   + loss[2]
+            self.optimizer.step()
+            total_loss1 += loss[0].item()
+            total_loss2 += loss[1].item()
+            # total_loss3 += loss[2].item()
+            total_B += y.shape[0]
+            if e % deltE == 0:
+                if all_y_pred is None:
+                    all_y_pred = y_pred
+                    all_y = y
+                else:
+                    all_y_pred = th.cat((all_y_pred, y_pred), dim=0)
+                    all_y = th.cat((all_y, y), dim=0)
+        if e % deltE == 0:
+            self.logger.add_scalar('train/loss1', total_loss1/total_B, e)
+            self.logger.add_scalar('train/loss2', total_loss2/total_B, e)
+            # self.logger.add_scalar('train/loss3', total_loss3/total_B, e)
+            self.logger.add_scalar('train/acc', accuracy(all_y_pred, all_y), e)
+    
+    def validate(self, e, deltE=1):
+        self.model.eval()
+        total_loss1 = 0
+        total_loss2 = 0
+        # total_loss3 = 0
+        total_B = 0
+        all_y_pred = None
+        all_y = None
+        with th.no_grad():
+            for i, batch in enumerate(self.loader['val_dataloader']):
+                loss, _, [y_pred, y] = self._mix_flow(batch, e)
+                self.optimizer.step()
+                total_loss1 += loss[0].item()
+                total_loss2 += loss[1].item()
+                # total_loss3 += loss[2].item()
+                total_B += y.shape[0]
+                if e % deltE == 0:
+                    if all_y_pred is None:
+                        all_y_pred = y_pred
+                        all_y = y
+                    else:
+                        all_y_pred = th.cat((all_y_pred, y_pred), dim=0)
+                        all_y = th.cat((all_y, y), dim=0)
+            if e % deltE == 0:
+                local_loss1 = total_loss1/total_B
+                local_loss2 = total_loss2/total_B
+                # local_loss3 = total_loss3/total_B
+                local_acc = accuracy(all_y_pred, all_y)
+                self.logger.add_scalar('val/loss1', local_loss1, e)
+                self.logger.add_scalar('val/loss2', local_loss2, e)
+                # self.logger.add_scalar('val/loss3', local_loss3, e)
+                self.logger.add_scalar('val/acc', local_acc, e)
+                if self.patience is not None:
+                    if local_loss1 < self.best_val_loss or self.best_val_loss == np.inf or e <= self.conf.warmup:
+                        self.best_val_loss = local_loss1
+                        self.counter = 0
+                        if self.save_ckpt:
+                            self._save_ckpt()
+                    else:
+                        self.counter += 1
+                        if self.counter >= self.patience:
+                            return True, local_loss1, None
+        return False, local_loss1, None 
+    
+    def view_result(self, n):
+        with th.no_grad():
+            for i, batch in enumerate(self.loader['val_dataloader']):
+                loss, [x_pred, all_ref], [y_pred, y] = self._mix_flow(batch, 0)
+                # self.optimizer.step()
+            # plot last batch
+            plt.figure()
+            for k in range(3):
+                for j in range(3):
+                    plt.subplot(3,3,j*3+k+1)
+                    plt.plot(x_pred.cpu().numpy()[n,k*3+j,:].T, label='x_pred', color='r')
+                    plt.plot(all_ref.cpu().numpy()[n,k*3+j,:].T, label='all_ref', color='g')
+                    
+                    plt.ylabel(f'{j},{k}')
+                    plt.legend()
+            plt.show()
+        print('show done')
 
 
 def main(train=True):
@@ -898,6 +1060,9 @@ def main(train=True):
     elif conf.task_name == 'Imputation':
         pipline = ImputationPipline(conf, comment='Imputation')
         netClass = VanillaTransformer # SSVEPModelAll
+    elif conf.task_name == 'Diffusion':
+        pipline = UnetDiffPipline(conf, comment='Diffusion')
+        netClass = ConditionalUNet # SSVEPModelAll
     # load data
     pipline._load_data(data_loader_fcn=get_dataloader)
     # model, optimizer, loss
@@ -905,7 +1070,7 @@ def main(train=True):
     # load ckpt
     # pipline._load_ckpt()
     # early stop
-    pipline._conf_early_stop(patience=10, save_ckpt=True)
+    pipline._conf_early_stop(patience=1000, save_ckpt=True)
     # train and validate
     if train:
         for e in tqdm(range(conf.epoch)):

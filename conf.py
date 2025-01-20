@@ -9,11 +9,11 @@ class Config(object):
     dataset = 'bench'
     # data_dir = '/Users/zhangxu/Desktop/ssvep/bench/'
     num_class = 40
-    data_t0 = 50
+    data_t0 = 48
     init_t0 = 125 + 35
     multiplex = 1
     delt_t = 30
-    batch_size = 40
+    batch_size = 80
     channel = []
     for i in [48, 54, 55, 56, 57, 58, 61, 62, 63]:
         channel.append(i-1)
@@ -21,8 +21,8 @@ class Config(object):
     val_person_id = None
     worker = 12
     
-    diff_num_step = 500
-    diff_beta = [1e-4, 0.02]
+    diff_num_step = 2000
+    diff_beta = [1e-4, 1e-2]
     
     # model config
     task_name = 'Diffusion' # 'classification' # 'short_term_forecast'
@@ -48,7 +48,7 @@ class Config(object):
     H = [5, 3, 1]
     non_linear = 'relu'
     norm = 'batch'
-    drop = [0.1, 0.1, 0.1, 0.9]
+    drop = [0.2, 0.2, 0.2, 0.9]
     emb = 120
     mid = 40*4
     bias = [True, False, False]
@@ -57,11 +57,11 @@ class Config(object):
     compress = 4
     
     # optimizer config
-    lr = 0.00001
+    lr = 0.001
     weight = 1e-5
     momentum = 0.9
     beta = (0.9, 0.999)
-    epoch = 200
+    epoch = 2000
     
     # task config
     mask_ratio = 0.4

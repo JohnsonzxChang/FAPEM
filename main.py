@@ -932,6 +932,7 @@ class UnetDiffPipline(Pipline):
         x_pred = self.model.combine_all(x)# or x
         all_ref = self.model.combine(all_ref)
         y_pred = self.model.corr(x_pred, all_ref)
+        # print(y_pred.shape, y.shape)
         assert y_pred.shape[-1] == 40, 'Shape mismatch, y_pred %s' % (y_pred.shape)
         loss2 = self.criterionCla(y_pred, y)
         return [loss1, loss2], [x_pred, all_ref], [y_pred, y]
@@ -1037,7 +1038,7 @@ class UnetDiffPipline(Pipline):
 
 def main(train=True):
     # set seed
-    setup_seed(10086)
+    # setup_seed(10086)
     # load config
     # conf = load_yaml('conf.yaml')
     conf = Config()
@@ -1070,7 +1071,7 @@ def main(train=True):
     # load ckpt
     # pipline._load_ckpt()
     # early stop
-    pipline._conf_early_stop(patience=1000, save_ckpt=True)
+    pipline._conf_early_stop(patience=20, save_ckpt=True)
     # train and validate
     if train:
         for e in tqdm(range(conf.epoch)):

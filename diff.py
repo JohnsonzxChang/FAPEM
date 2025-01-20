@@ -4,7 +4,7 @@ import torch.nn.functional as FF
 from conf import Config
 import numpy as np
 
-ALL_NONLINEAR = {'relu':nn.ReLU, 'relu6':nn.ReLU6, 'elu':nn.ELU, 'leaky':nn.LeakyReLU, 'gelu':nn.GELU, 'none':None}
+ALL_NONLINEAR = {'relu':nn.ReLU, 'relu6':nn.ReLU6, 'elu':nn.ELU, 'leaky':nn.LeakyReLU, 'gelu':nn.GELU, 'selu':nn.SELU, 'none':None}
 ALL_NORMALIZATION = {'batch':nn.BatchNorm2d, 'none':None}
 
 class Block(nn.Module):
@@ -59,7 +59,7 @@ class ConditionalUNet(nn.Module):
         # 时间嵌入
         self.time_embed = nn.Sequential(
             nn.Linear(1, 32),
-            nn.ReLU(),
+            nn.SELU(),
             nn.Linear(32, 32)
         )
         
@@ -68,14 +68,14 @@ class ConditionalUNet(nn.Module):
         
         self.cond_proj = nn.Sequential(
             nn.Linear(32, C[-1]),  # 将128维扩展到256维匹配特征图
-            nn.ReLU()
+            nn.SELU()
         )
         
         # 下采样路径
         self.down = nn.ModuleList([
-            Block(C[0], C[1], k=5, s=1, p=2, M=M, act='relu', norm='batch', drop=drop[0], down=True),
-            Block(C[1], C[2], k=5, s=2, p=2, M=M, act='relu', norm='batch', drop=drop[0], down=True),
-            Block(C[2], C[3], k=5, s=2, p=2, M=M, act='relu', norm='batch', drop=drop[0], down=True),
+            Block(C[0], C[1], k=5, s=1, p=2, M=M, act='selu', norm='batch', drop=drop[0], down=True),
+            Block(C[1], C[2], k=5, s=2, p=2, M=M, act='selu', norm='batch', drop=drop[0], down=True),
+            Block(C[2], C[3], k=5, s=2, p=2, M=M, act='selu', norm='batch', drop=drop[0], down=True),
         ])
         self.downChn = nn.ModuleList([
             nn.Conv2d(C[1], C[1], (M,1), 1, padding='same', bias=False),
@@ -88,9 +88,9 @@ class ConditionalUNet(nn.Module):
         # 上采样路径
         self.up = nn.ModuleList([
             # 中间层
-            Block(C[3], C[3], k=5, s=1, p=2, M=M, act='relu', norm='batch', drop=drop[0], down=False, T=13),
-            Block(C[3], C[2], k=5, s=2, p=2, M=M, act='relu', norm='batch', drop=drop[0], down=False, T=25),
-            Block(C[2], C[1], k=5, s=2, p=2, M=M, act='relu', norm='batch', drop=drop[0], down=False, T=50),
+            Block(C[3], C[3], k=5, s=1, p=2, M=M, act='selu', norm='batch', drop=drop[0], down=False, T=13),
+            Block(C[3], C[2], k=5, s=2, p=2, M=M, act='selu', norm='batch', drop=drop[0], down=False, T=25),
+            Block(C[2], C[1], k=5, s=2, p=2, M=M, act='selu', norm='batch', drop=drop[0], down=False, T=50),
             
         ])
         self.upChn = nn.ModuleList([
@@ -134,7 +134,7 @@ class ConditionalUNet(nn.Module):
         x = res[-1]
         # 上采样
         for fcn, fcnChn in zip(self.up, self.upChn):
-            x = FF.relu(fcn(x))
+            x = FF.selu(fcn(x))
             x = x + fcnChn(x)
             # print(x.shape, res[-1].shape)
             x = x + res.pop()   
@@ -158,7 +158,9 @@ class ConditionalUNet(nn.Module):
     def corr(self, x, y):
         # y = self.ref_freq.to(x.device)
         assert x.shape == y.shape, f'x shape must be equal to y shape, but got {x.shape} and {y.shape}'
-        y = torch.einsum('bft,bft->bf', x, y)
+        y = torch.einsum('bft,bgt->bfg', x, y) / x.shape[-1]
+        y = y * torch.eye(y.shape[-1]).to(y.device).unsqueeze(0).expand_as(y)
+        y = y.sum(dim=-1)
         # y = y.reshape(y.shape[0], -1)
         return y
             
@@ -211,15 +213,22 @@ class DiffusionModel:
         for lb in all_label:
             labels = torch.ones(n_samples, dtype=torch.long).to(device) * lb
             x = torch.randn(shapes).to(device)
-            t_batch = torch.zeros(n_samples, dtype=torch.long).to(device)
-            predicted_noise = model(x, t_batch, labels)
-            alpha_t = self.alpha[0]
-            alpha_bar_t = self.alpha_bar[0]
-            noise = 0
-            x = 1 / torch.sqrt(alpha_t) * (
-                x - (1 - alpha_t) / torch.sqrt(1 - alpha_bar_t) * predicted_noise
-            )
-            # x = model.combine_all(x, dim=1)
+            # t_batch = torch.zeros(n_samples, dtype=torch.long).to(device)
+            for t in range(self.num_steps-1, -1, -40):
+                t_batch = torch.ones(n_samples, dtype=torch.long).to(device) * t
+                predicted_noise = model(x, t_batch, labels)
+                alpha_t = self.alpha[t]
+                alpha_bar_t = self.alpha_bar[t]
+                
+                if t > 0:
+                    noise = torch.randn_like(x)
+                else:
+                    noise = 0
+                    
+                x = 1 / torch.sqrt(alpha_t) * (
+                    x - (1 - alpha_t) / torch.sqrt(1 - alpha_bar_t) * predicted_noise
+                ) + torch.sqrt(self.beta[t]) * noise
+            
             res.append(x)
         res = torch.stack(res, dim=1)
         return res 
